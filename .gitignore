@@ -1,0 +1,69 @@
+# ---------------------------------------------------------------------------
+# DeflectoLab .gitignore
+# ---------------------------------------------------------------------------
+
+# ---- Visual Studio / MSVC build output ----
+x64/
+Win32/
+Debug/
+Release/
+[Bb]in/
+[Oo]bj/
+*.obj
+*.o
+*.pdb
+*.ilk
+*.idb
+*.exp
+*.iobj
+*.ipdb
+*.tlog
+*.log
+*.lastbuildstate
+*.aps
+*.exe
+*.res
+
+# ---- Visual Studio IDE / per-user files ----
+.vs/
+*.vcxproj.user
+*.suo
+*.user
+*.sln.docstates
+
+# ---- CodeArts / CodeGraph / Arts tooling caches ----
+.codeartsdoer/
+.codegraph/
+.arts/
+.merkle-snapshot.json
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# ---- Blender ----
+*.blend
+*.blend1
+
+# ---- Rendered / captured data (large binaries) ----
+data/
+*.bmp
+
+# ---- Archives ----
+*.rar
+*.zip
+*.7z
+
+# ---- Runtime logs produced by the app ----
+pointcloud_render.log
+*_render.log
+
+# ---- Helper / scratch scripts not part of the pipeline ----
+check_*.py
+_extract_scripts*.py
+
+# ---- Other project folders not part of this repo ----
+Stereo/

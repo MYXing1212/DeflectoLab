@@ -1,0 +1,144 @@
+// Microsoft Visual C++ generated resource script.
+//
+#include "resource.h"
+
+#define APSTUDIO_READONLY_SYMBOLS
+#ifndef APSTUDIO_INVOKED
+/////////////////////////////////////////////////////////////////////////////
+//
+// Generated from the TEXTINCLUDE 2 resource.
+//
+#include "afxres.h"
+
+/////////////////////////////////////////////////////////////////////////////
+#undef APSTUDIO_READONLY_SYMBOLS
+#endif // APSTUDIO_READONLY_SYMBOLS
+
+#ifdef APSTUDIO_INVOKED
+/////////////////////////////////////////////////////////////////////////////
+//
+// TEXTINCLUDE
+//
+
+1 TEXTINCLUDE
+BEGIN
+    "resource.h\0"
+END
+
+2 TEXTINCLUDE
+BEGIN
+    "#include ""afxres.h""\r\n"
+    "\0"
+END
+
+3 TEXTINCLUDE
+BEGIN
+    "#define _AFX_NO_OLE_RESOURCES\r\n"
+    "\r\n"
+END
+
+#endif    // APSTUDIO_INVOKED
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Dialog
+//
+
+IDD_RECONSTRUCT3D_DIALOG DIALOGEX 0, 0, 620, 620
+STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_VISIBLE | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME
+EXSTYLE WS_EX_APPWINDOW
+CAPTION "Binocular Deflectometry 3D Reconstruction"
+FONT 9, "Microsoft YaHei UI", 400, 0, 0x86
+BEGIN
+    LTEXT           "Fringe Image Dir:",IDC_STATIC,12,12,60,10
+    EDITTEXT        IDC_EDIT_IMAGE_PATH,80,10,420,12,ES_AUTOHSCROLL | ES_READONLY
+    PUSHBUTTON      "Load Images",IDC_BTN_LOAD_IMAGES,510,8,90,14
+
+    LTEXT           "Calibration Dir:",IDC_STATIC,12,32,60,10
+    EDITTEXT        IDC_EDIT_CALIB_PATH,80,30,420,12,ES_AUTOHSCROLL | ES_READONLY
+    PUSHBUTTON      "Load Calib",IDC_BTN_LOAD_CALIB,510,28,90,14
+
+    LTEXT           "Fringe Pitches:",IDC_STATIC,12,52,60,10
+    EDITTEXT        IDC_EDIT_FRINGE_PITCHES,80,50,80,12,ES_AUTOHSCROLL
+    LTEXT           "Z min(mm):",IDC_STATIC,180,52,40,10
+    EDITTEXT        IDC_EDIT_ZMIN,225,50,50,12,ES_AUTOHSCROLL
+    LTEXT           "Z max(mm):",IDC_STATIC,290,52,40,10
+    EDITTEXT        IDC_EDIT_ZMAX,335,50,50,12,ES_AUTOHSCROLL
+
+    PUSHBUTTON      "Reconstruct 3D",IDC_BTN_RECONSTRUCT,12,70,90,18
+    PUSHBUTTON      "Phase Unwrap",IDC_BTN_PHASE_UNWRAP,110,70,90,18
+    PUSHBUTTON      "Save PLY",IDC_BTN_SAVE_POINTCLOUD,208,70,90,18
+    CONTROL         "",IDC_PROGRESS_RECON,"msctls_progress32",WS_BORDER,306,72,204,14
+    PUSHBUTTON      "Stop",IDC_BTN_CANCEL_RECON,510,70,90,18,WS_DISABLED
+
+    LTEXT           "Ready",IDC_STATIC_STATUS,12,92,500,10
+
+    GROUPBOX        "3D Point Cloud (OpenGL - Drag:Rotate / Wheel:Zoom / RDrag:Pan)",IDC_STATIC,12,108,596,340
+    CONTROL         "",IDC_STATIC_POINTCLOUD,"Static",SS_BLACKRECT | WS_BORDER,18,122,584,320
+
+    GROUPBOX        "Log",IDC_STATIC,12,452,596,158
+    EDITTEXT        IDC_EDIT_LOG,18,464,584,140,ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY | WS_VSCROLL | WS_BORDER
+END
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Version
+//
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION 1,0,0,1
+ PRODUCTVERSION 1,0,0,1
+ FILEFLAGSMASK 0x3fL
+ FILEFLAGS 0x0L
+ FILEOS 0x40004L
+ FILETYPE 0x1L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "080404b0"
+        BEGIN
+            VALUE "CompanyName", "QUST"
+            VALUE "FileDescription", "Binocular Deflectometry 3D Reconstruction"
+            VALUE "FileVersion", "1.0.0.1"
+            VALUE "InternalName", "Reconstruct3D"
+            VALUE "LegalCopyright", "QUST"
+            VALUE "OriginalFilename", "Reconstruct3D.exe"
+            VALUE "ProductName", "Reconstruct3D"
+            VALUE "ProductVersion", "1.0.0.1"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x804, 1200
+    END
+END
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// DESIGNINFO
+//
+
+#ifdef APSTUDIO_INVOKED
+GUIDELINES DESIGNINFO
+BEGIN
+    IDD_RECONSTRUCT3D_DIALOG, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 613
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 453
+    END
+END
+#endif    // APSTUDIO_INVOKED
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// AFX_DIALOG_LAYOUT
+//
+
+IDD_RECONSTRUCT3D_DIALOG AFX_DIALOG_LAYOUT
+BEGIN
+    0
+END
+
