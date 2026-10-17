@@ -783,6 +783,64 @@ def _updateUI():
         pass
 
 
+def poll_board_object(self, obj):
+    """被测物体选择器只显示网格物体。"""
+    return obj is not None and obj.type == 'MESH'
+
+
+class DeflBoardEntry(bpy.types.PropertyGroup):
+    obj: bpy.props.PointerProperty(name="物体", type=bpy.types.Object, poll=poll_board_object)
+
+
+def board_enum_items(self, context):
+    """下拉框内容 = 用户手动维护的候选列表"""
+    lst = getattr(context.scene, "defl_boards", None)
+    if not lst or len(lst) == 0:
+        return [('-1', "(列表为空, 请先用下方按钮添加)", "")]
+    out = []
+    for i in range(len(lst)):
+        o = lst[i].obj
+        out.append((str(i), o.name if o else "(物体已删除)", ""))
+    return out
+
+
+def get_selected_board(context):
+    """返回下拉框当前选中的被测物体; 列表未注册或为空时返回 None"""
+    lst = getattr(context.scene, "defl_boards", None)
+    if not lst:
+        return None
+    try:
+        i = int(getattr(context.scene, "defl_board_object", "-1"))
+    except (ValueError, TypeError):
+        return None
+    if 0 <= i < len(lst):
+        return lst[i].obj
+    return None
+
+
+def apply_board_visibility(context):
+    """只隐藏候选列表里未被选中的物体; 未加入列表的物体一概不动
+
+    作用: 切换下拉框后, 列表中的其他候选被测物在视图与渲染中隐藏,
+          便于查看当前选中的那一个。
+    """
+    scene = context.scene
+    cur = get_selected_board(context)
+    lst = getattr(scene, "defl_boards", None)
+    if not lst or cur is None:
+        return
+    for e in lst:
+        if e.obj:
+            hide = (e.obj is not cur)
+            e.obj.hide_viewport = hide
+            e.obj.hide_render = hide
+
+
+def on_board_changed(self, context):
+    """下拉框切换被测物体时立即刷新可见性"""
+    apply_board_visibility(context)
+
+
 def registerSceneProps():
     """注册UI配置属性（投图模式/条纹目录/显示屏分辨率/3频组合）"""
     bpy.types.Scene.defl_pattern_mode = bpy.props.EnumProperty(
@@ -824,13 +882,21 @@ def registerSceneProps():
     bpy.types.Scene.defl_base_path = bpy.props.StringProperty(
         name="渲染输出目录", description="渲染条纹图的保存目录(自动记忆到配置文件)",
         subtype='DIR_PATH', default=base_path)
+    bpy.types.Scene.defl_boards = bpy.props.CollectionProperty(type=DeflBoardEntry)
+    bpy.types.Scene.defl_board_object = bpy.props.EnumProperty(
+        name="被测物体",
+        description="要重建的被测物体; 切换后场景中只显示它, 其余网格物体隐藏",
+        items=board_enum_items,
+        update=on_board_changed,
+    )
 
 
 def unregisterSceneProps():
     for name in ("defl_pattern_mode", "defl_pattern_dir", "defl_proj_width",
                  "defl_proj_height", "defl_freq_group", "defl_freq_group_h",
                  "defl_fringe_bias", "defl_fringe_amplitude",
-                 "defl_file_pitches", "defl_file_pitches_h", "defl_file_offset", "defl_base_path"):
+                 "defl_file_pitches", "defl_file_pitches_h", "defl_file_offset", "defl_base_path",
+                 "defl_board_object", "defl_boards"):
         try:
             delattr(bpy.types.Scene, name)
         except Exception:
@@ -848,6 +914,10 @@ class DEFLECTOMETRY_PT_render_config(bpy.types.Panel):
         scene = context.scene
         layout = self.layout
         col = layout.column()
+        col.prop(scene, "defl_board_object")
+        col.operator("deflectometry.board_add", text="添加全部被测物体", icon='ADD')
+        col.operator("deflectometry.board_del", text="删除", icon='REMOVE')
+        col.separator()
         col.prop(scene, "defl_pattern_mode")
         if scene.defl_pattern_mode == 'FILE':
             col.prop(scene, "defl_pattern_dir")
@@ -885,6 +955,48 @@ class DEFLECTOMETRY_PT_render_config(bpy.types.Panel):
         col.operator("deflectometry.start_render", icon='RENDER_STILL')
         col.operator("deflectometry.export_calib", icon='FILE_TEXT')
         col.operator("deflectometry.rotate_screen_frame", icon='FILE_REFRESH')
+
+
+class DEFLECTOMETRY_OT_board_add(bpy.types.Operator):
+    bl_idname = "deflectometry.board_add"
+    bl_label = "添加选中物体"
+    bl_description = "把当前选中的网格物体加入被测物体候选列表"
+
+    def execute(self, context):
+        objs = [o for o in context.selected_objects if o.type == 'MESH']
+        if not objs:
+            self.report({'WARNING'}, "请先在3D视图中选中一个网格物体")
+            return {'CANCELLED'}
+        lst = context.scene.defl_boards
+        added = 0
+        for o in objs:
+            if any(e.obj is o for e in lst):
+                continue
+            e = lst.add()
+            e.obj = o
+            added += 1
+        context.scene.defl_board_object = str(len(lst) - 1)
+        self.report({'INFO'}, "已添加 %d 个物体, 当前列表 %d 项" % (added, len(lst)))
+        return {'FINISHED'}
+
+
+class DEFLECTOMETRY_OT_board_del(bpy.types.Operator):
+    bl_idname = "deflectometry.board_del"
+    bl_label = "删除"
+    bl_description = "从候选列表中移除当前项(只从列表移除, 不删除场景中的物体)"
+
+    def execute(self, context):
+        lst = context.scene.defl_boards
+        try:
+            i = int(context.scene.defl_board_object)
+        except (ValueError, TypeError):
+            return {'CANCELLED'}
+        if not (0 <= i < len(lst)):
+            return {'CANCELLED'}
+        lst.remove(i)
+        context.scene.defl_board_object = (str(max(0, min(i, len(lst) - 1)))
+                                           if len(lst) > 0 else '-1')
+        return {'FINISHED'}
 
 
 class DEFLECTOMETRY_OT_export_calib(bpy.types.Operator):
@@ -939,12 +1051,17 @@ class DEFLECTOMETRY_OT_start_render(bpy.types.Operator):
         global calibration_board, projector, camera_left, camera_right, base_path
         base_path = bpy.path.abspath(context.scene.defl_base_path)
         saveRenderConfig()
-        calibration_board = bpy.data.objects.get("CalibrationBoard") or calibration_board
+        calibration_board = get_selected_board(context)
+        if calibration_board is None:
+            self.report({'ERROR'}, "未选择被测物体: 请先在面板的列表中添加并选择一个被测物体")
+            return {'CANCELLED'}
+        # 只渲染当前选中的被测物(其余网格物体保持隐藏)
+        apply_board_visibility(context)
         projector = bpy.data.objects.get("Light") or projector
         camera_left = bpy.data.objects.get(LEFT_CAMERA_NAME) or camera_left
         camera_right = bpy.data.objects.get(RIGHT_CAMERA_NAME) or camera_right
         if not all([calibration_board, projector, camera_left, camera_right]):
-            self.report({'ERROR'}, "场景缺少必要对象(CalibrationBoard/Light/双相机)")
+            self.report({'ERROR'}, "场景缺少必要对象(被测物体/Light/双相机)")
             return {'CANCELLED'}
         # 渲染前按实际相机对象摆正 C_LCam/C_RCam 标定坐标系(OpenCV相机系)
         align_calib_frames()
@@ -1104,9 +1221,12 @@ def registerRenderUI():
     global _uiClassesRegistered
     if _uiClassesRegistered:
         return
-    for cls in (DEFLECTOMETRY_PT_render_config,
+    for cls in (DeflBoardEntry,
+                DEFLECTOMETRY_PT_render_config,
                 DEFLECTOMETRY_PT_render_progress,
                 DEFLECTOMETRY_OT_start_render,
+                DEFLECTOMETRY_OT_board_add,
+                DEFLECTOMETRY_OT_board_del,
                 DEFLECTOMETRY_OT_export_calib,
                 DEFLECTOMETRY_OT_rotate_screen_frame,
                 DEFLECTOMETRY_OT_pause_render,
@@ -1135,6 +1255,8 @@ def unregisterRenderUI():
                 DEFLECTOMETRY_OT_pause_render,
                 DEFLECTOMETRY_OT_rotate_screen_frame,
                 DEFLECTOMETRY_OT_export_calib,
+                DEFLECTOMETRY_OT_board_del,
+                DEFLECTOMETRY_OT_board_add,
                 DEFLECTOMETRY_OT_start_render,
                 DEFLECTOMETRY_PT_render_progress,
                 DEFLECTOMETRY_PT_render_config):
@@ -1143,6 +1265,10 @@ def unregisterRenderUI():
         except Exception:
             pass
     unregisterSceneProps()
+    try:
+        bpy.utils.unregister_class(DeflBoardEntry)
+    except Exception:
+        pass
     _uiClassesRegistered = False
 
 
@@ -1195,17 +1321,20 @@ def matrixToRotationVector(R):
     if theta < 1e-12:
         return np.zeros(3, dtype=np.float64)
     if abs(theta - np.pi) < 1e-6:
-        # θ≈π: 由 (R+R^T)/2 = I - 2(1-cosθ)kk^T 反解 k
-        M = (2.0 * np.eye(3) - R - R.T) / 4.0
-        k = np.sqrt(np.clip(np.diag(M), 0.0, None))
-        idx = int(np.argmax(k))
-        if k[idx] < 1e-12:
-            return np.zeros(3, dtype=np.float64)
-        # 用反对称部分定符号
-        skew = (R - R.T) / (2.0 * np.sin(theta))
-        kFull = np.array([skew[2, 1], skew[0, 2], skew[1, 0]], dtype=np.float64)
-        sign = 1.0 if kFull[idx] >= 0 else -1.0
-        return theta * sign * k / (k[idx] + 1e-30)
+        # 【补丁5】θ≈π 时普通公式含 1/sinθ → 数值爆炸, 必须单独处理。
+        # 原实现用 k = sqrt(diag((2I-R-Rᵀ)/4)) 是错的: 该矩阵实为 c(I-kkᵀ), c=(1-cosθ)/2,
+        # 于是解出的是 sqrt(1-kᵢ²) 而不是 kᵢ, 旋转轴会错 45°~90°。
+        # 恒等式: (R+Rᵀ)/2 = cos²(θ/2)·I + sin²(θ/2)·kkᵀ  (k = 单位旋转轴)
+        #   ⇒ 沿 k 的特征值恒为 1(最大), 其余为 cos²(θ/2)≈0, 取最大特征向量即得轴。
+        # 注意必须用"对称部分"再 eigh: eigh 只读下三角, 直接喂非对称的 (R+I)/2 会得到垃圾。
+        w, V = np.linalg.eigh((R + R.T) * 0.5)
+        k = V[:, int(np.argmax(w))]
+        # 轴的符号由反对称部分 (R−Rᵀ)/2 = sinθ·K 决定。
+        # (|θ−π|<1e-6 时 sinθ≈1e-6, 远大于 float64 机器精度, 定符号仍然可靠)
+        K = (R - R.T) / (2.0 * np.sin(theta))
+        if float(np.dot(k, np.array([K[2, 1], K[0, 2], K[1, 0]]))) < 0.0:
+            k = -k
+        return theta * k
     return theta / (2.0 * np.sin(theta)) * np.array([
         R[2, 1] - R[1, 2],
         R[0, 2] - R[2, 0],
@@ -1221,6 +1350,7 @@ def blender_object_extrinsics(obj, ref_obj=None):
     对于非相机对象（如显示屏）：在ref_obj的OpenCV坐标系下表达
     Blender默认单位为m，平移分量乘以1000转为mm
     """
+    # 单目
     T_b2c = np.array([
         [1,  0,  0],
         [0, -1,  0],
@@ -1252,6 +1382,7 @@ def camera_extrinsics_cv(cam_obj, ref_cam_obj):
       => R = T_b2c·R_rel·T_b2c, T = T_b2c·t_rel  (R_rel,t_rel = inv(M_l)@M_r)
     渲染实际使用相机对象位姿, 故外参必须由相机对象计算(而非坐标系空对象)
     """
+    # 双目
     T_b2c = np.array([
         [1,  0,  0],
         [0, -1,  0],
@@ -1270,50 +1401,113 @@ def camera_extrinsics_cv(cam_obj, ref_cam_obj):
     return om, t_cv
 
 
+def _screen_tex_nodes(mesh_obj):
+    """【补丁4】取屏面材质的 (TEX_IMAGE 节点, 其 Vector 上游的 MAPPING 节点)。
+    屏面实际显示的是"经材质节点变换后的贴图", 而非裸 UV 层 —— 本场景 Mapping 是
+    180°绕Z + 镜像X, 等效把贴图相对 UV 层上下翻转, 必须一起考虑。"""
+    if mesh_obj is None:
+        return None, None
+    if mesh_obj.type == 'MESH':
+        if not mesh_obj.data.materials:
+            return None, None
+        mat = mesh_obj.data.materials[0]
+        if not mat.use_nodes:
+            return None, None
+        nodes = mat.node_tree.nodes
+    elif mesh_obj.type == 'LIGHT':
+        if not mesh_obj.data.use_nodes:
+            return None, None
+        nodes = mesh_obj.data.node_tree.nodes
+    else:
+        return None, None
+    tex = next((n for n in nodes if n.type == 'TEX_IMAGE'), None)
+    mp = None
+    if tex is not None:
+        for inp in tex.inputs:
+            if inp.name in ('Vector', 'UV') and inp.is_linked:
+                fn = inp.links[0].from_node
+                if fn.type == 'MAPPING' and getattr(fn, 'vector_type', 'POINT') == 'POINT':
+                    mp = fn
+                break
+    return tex, mp
+
+
+def _loop_image_pixels(mesh_obj, prj_w, prj_h):
+    """【补丁1-3】每个 loop 的 (xS,yS) 图像像素坐标 与 世界坐标。
+    已计入: 活动渲染UV层 → Mapping(POINT) 变换 → REPEAT 环绕
+    贴图坐标→图像像素:  xS = u_tex*W ,  yS = (1 - v_tex)*H  (图像原点在左上角)
+    返回 (X, Wm), X 的每行是 [1, xS, yS]"""
+    tex, mp = _screen_tex_nodes(mesh_obj)
+    ext = getattr(tex, 'extension', 'REPEAT') if tex is not None else 'REPEAT'
+    mesh = mesh_obj.data
+    # 注意: active_render 是"每个UV层上的布尔属性", 不是 uv_layers 集合的属性!
+    #       mesh.uv_layers.active_render 会抛 AttributeError(集合只有 active / active_index)
+    uvl = next((l for l in mesh.uv_layers if getattr(l, 'active_render', False)), None) \
+        or mesh.uv_layers.active
+    M = np.array(mesh_obj.matrix_world)
+    R, t = M[:3, :3], M[:3, 3]
+    rows, ws = [], []
+    for poly in mesh.polygons:
+        for li in poly.loop_indices:
+            vi = mesh.loops[li].vertex_index
+            uv = uvl.data[li].uv
+            tu, tv = float(uv.x), float(uv.y)
+            if mp is not None:
+                loc = np.array([float(v) for v in mp.inputs['Location'].default_value])
+                rot = np.array([float(v) for v in mp.inputs['Rotation'].default_value])
+                scl = np.array([float(v) for v in mp.inputs['Scale'].default_value])
+                v3 = np.array([tu, tv, 0.0]) * scl          # 缩放
+                cz, sz = math.cos(rot[2]), math.sin(rot[2])
+                v3 = np.array([cz * v3[0] - sz * v3[1],     # 绕Z旋转
+                               sz * v3[0] + cz * v3[1], v3[2]]) + loc
+                tu, tv = float(v3[0]), float(v3[1])
+            rows.append([1.0, tu * prj_w, (1.0 - tv) * prj_h])
+            ws.append(R @ np.array(mesh.vertices[vi].co) + t)
+    X = np.array(rows, dtype=np.float64)
+    # REPEAT 环绕等价于沿 xS/yS 平移"整数个图像宽/高", 所以不要用 frac() 取模:
+    # frac() 在整数边界处不连续, 而网格顶点恰好落在边界上 —— 本场景 Mapping 是
+    # 180°绕Z + 镜像X(即 tv = -v), 四个角点正好是 frac(-v) 的分支点, 会被判到贴图另一端,
+    # 导致设计矩阵退化(两行重合) → 最小二乘解爆炸。
+    # 改为按整数倍平移, 把拟合窗口对齐到图像 [0,W]×[0,H]。
+    if ext == 'REPEAT':
+        X[:, 1] += round(-X[:, 1].min() / prj_w) * prj_w
+        X[:, 2] += round(-X[:, 2].min() / prj_h) * prj_h
+    return X, np.array(ws)
+
+
 def screen_frame_from_uv(light_obj, cam_left):
     """从屏面网格UV拟合显示屏外参 (左相机OpenCV系, mm)
 
     屏坐标系约定(与Reconstruct3D displayTo3D配套, 用户自定义):
       原点 = 屏左上角(相机视角下图像(0,0)像素处)
       +X = 像素xS+(图像向右), +Y = 像素yS+(图像向下), Z = X×Y(右手闭合)
-    由网格UV最小二乘拟合屏面平面, 不依赖C_Screen空对象:
-      图像像素与UV对应: xS = u*W, yS = (1-v)*H  (Blender UV: v+沿图像上)
-      uv(0,0)↔图像左下角, uv(0,1)↔图像左上角(=屏坐标系原点)
+    【补丁1-4】由 _loop_image_pixels 在"图像像素空间"最小二乘拟合屏面平面, 不依赖C_Screen空对象:
+      每个网格 loop 先按 活动UV层 → 贴图Mapping变换 → REPEAT环绕 换算成图像像素(xS,yS),
+      再由 [1,xS,yS] → 世界坐标 拟合。因此贴图若被翻转/旋转, 屏坐标系会与渲染实际显示保持一致。
     返回 (om, T); 失败返回 None
     """
     mesh = light_obj.data
     if light_obj.type != 'MESH' or not mesh.uv_layers or not mesh.uv_layers.active:
         print("错误: 屏面对象必须是带UV贴图的网格, 无法按UV定位屏坐标系")
         return None
-    M_l = np.array(light_obj.matrix_world)
-    R_l = M_l[:3, :3]
-    t_l = M_l[:3, 3]
-    uv_data = mesh.uv_layers.active.data
-    rows, ws = [], []
-    for poly in mesh.polygons:
-        for li in poly.loop_indices:
-            vi = mesh.loops[li].vertex_index
-            uv = uv_data[li].uv
-            co = R_l @ mesh.vertices[vi].co + t_l
-            rows.append((1.0, float(uv.x), float(uv.y)))
-            ws.append(co)
-    if len(rows) < 4:
+    X, Wm = _loop_image_pixels(light_obj, PROJ_RES['w'], PROJ_RES['h'])
+    if len(X) < 4:
         print("错误: 屏面网格顶点过少, 无法拟合屏坐标系")
         return None
-    X = np.array(rows)                      # N×3: [1, u, v]
-    Wm = np.array(ws)                       # N×3: 世界坐标
     theta, *_ = np.linalg.lstsq(X, Wm, rcond=None)
-    p00 = theta[:, 0]                       # uv(0,0) = 图像左下角(世界)
-    du = theta[:, 1]                        # u+ 单位位移 = 屏宽向量(图像右)
-    dv = theta[:, 2]                        # v+ 单位位移 = 屏高向量(图像上)
-    origin_w = p00 + dv                     # uv(0,1) = 图像左上角 = 屏坐标系原点
-    U_w = du / np.linalg.norm(du)           # +X: 图像右
-    V_w = -dv / np.linalg.norm(dv)          # +Y: 图像下
+    # theta 的"行"才是基向量: W = theta[0] + xS·theta[1] + yS·theta[2]
+    # (原实现取 theta[:,0]/[:,1]/[:,2] 是错的: 那会把世界 X/Y/Z 分量混在一起)
+    origin_w = theta[0]                     # 图像(0,0) = 屏左上角
+    dpx, dpy = theta[1], theta[2]           # ∂W/∂xS, ∂W/∂yS (内部单位/像素)
+    U_w = dpx / np.linalg.norm(dpx)         # +X: 图像右
+    V_w = dpy / np.linalg.norm(dpy)         # +Y: 图像下(已含贴图翻转)
     B_w = np.cross(U_w, V_w)                # +Z: 右手闭合(X×Y)
     B_w = B_w / np.linalg.norm(B_w)
     U_o = U_w - V_w * np.dot(U_w, V_w) - B_w * np.dot(U_w, B_w)
     U_o = U_o / np.linalg.norm(U_o)         # UV斜切时正交修正
-    R_w = np.column_stack([U_o, V_w, B_w])  # 屏局部(用户约定) → 世界
+    V_o = np.cross(B_w, U_o)
+    V_o = V_o / np.linalg.norm(V_o)
+    R_w = np.column_stack([U_o, V_o, B_w])  # 屏局部(用户约定) → 世界
     # 左相机对象: Blender相机局部(-Y视线) → OpenCV(+Z视线), 逆相机即 T_b2c(自逆)
     T_b2c = np.array([
         [1,  0,  0],
@@ -1332,55 +1526,40 @@ def screen_frame_from_uv(light_obj, cam_left):
 
 
 def screen_world_frame_from_uv(mesh_obj):
-    """由屏面网格几何+UV, 拟合屏坐标系的世界位姿(几何精确, 与手摆的C_Screen无关)。
-    返回 (origin_w, R_w):
-      origin_w = 图像(0,0)角点(屏左上角)在世界系(内部单位)
-      R_w = 3x3, 列 = [X图像右, Y图像下, Z屏法向](世界系, 单位正交)
+    """【补丁1-4】由屏面网格 + 实际贴图映射, 在"图像像素空间"拟合屏坐标系(几何精确)。
+    返回 (origin_w, R_w, width_mm, height_mm):
+      origin_w = 图像(0,0)像素处(屏左上角)的世界坐标
+      R_w      = 列 [X=图像右, Y=图像下, Z=X×Y]
+      width_mm/height_mm = 图像区域在屏上的物理尺寸(= |∂W/∂xS|·W)
     失败返回 None。"""
     if mesh_obj is None or getattr(mesh_obj, "type", None) != 'MESH':
         return None
     mesh = mesh_obj.data
     if not mesh.uv_layers or not mesh.uv_layers.active:
         return None
-    M_l = np.array(mesh_obj.matrix_world)
-    R_l = M_l[:3, :3]
-    t_l = M_l[:3, 3]
-    uv_data = mesh.uv_layers.active.data
-    rows, ws = [], []
-    for poly in mesh.polygons:
-        for li in poly.loop_indices:
-            vi = mesh.loops[li].vertex_index
-            uv = uv_data[li].uv
-            co = R_l @ np.array(mesh.vertices[vi].co) + t_l
-            rows.append((1.0, float(uv.x), float(uv.y)))
-            ws.append(co)
-    if len(rows) < 4:
+    X, Wm = _loop_image_pixels(mesh_obj, PROJ_RES['w'], PROJ_RES['h'])
+    if len(X) < 4:
         return None
-    X = np.array(rows)
-    Wm = np.array(ws)
     theta, *_ = np.linalg.lstsq(X, Wm, rcond=None)
-    p00 = theta[:, 0]     # uv(0,0)=图像左下角
-    du = theta[:, 1]      # u+ 位移(图像右)
-    dv = theta[:, 2]      # v+ 位移(图像上)
-    origin_w = p00 + dv   # uv(0,1)=图像左上角=屏坐标系原点
-    U_w = du / np.linalg.norm(du)          # +X 图像右
-    V_w = -dv / np.linalg.norm(dv)         # +Y 图像下
+    origin_w = theta[0]                       # 图像(0,0)
+    dpx = theta[1]                            # ∂W/∂xS (内部单位/像素)
+    dpy = theta[2]                            # ∂W/∂yS (内部单位/像素)
+    U_w = dpx / np.linalg.norm(dpx)           # +X 图像右
+    V_w = dpy / np.linalg.norm(dpy)           # +Y 图像下(已含贴图翻转)
     B_w = np.cross(U_w, V_w)
-    B_w = B_w / np.linalg.norm(B_w)        # +Z 法向
+    B_w = B_w / np.linalg.norm(B_w)           # +Z 法向
     # 正交化(应对UV轻微斜切), 保证 R_w 为正交阵
     U_o = U_w - V_w * np.dot(U_w, V_w) - B_w * np.dot(U_w, B_w)
     U_o = U_o / np.linalg.norm(U_o)
     V_o = np.cross(B_w, U_o)
     V_o = V_o / np.linalg.norm(V_o)
     R_w = np.column_stack([U_o, V_o, B_w])
-    # 屏物理尺寸: 直接量网格顶点沿"图像右(U_o)/图像下(V_o)"方向的实际跨度,
-    # 与 Blender 网格 Dimensions 一致(不依赖UV是否铺满[0,1]), 且方向对应图像X/Y不会反。
+    # 像元尺寸: 直接取"每像素的世界位移", 除以分辨率即得原语义的物理尺寸。
+    # (原实现用"网格顶点跨度/分辨率", 隐含"UV[0,1] 必须正好铺满网格"; 这里不再依赖该前提)
     unit_to_mm = get_scene_unit_scale()
-    pu = Wm @ U_o
-    pv = Wm @ V_o
-    width_mm = float((pu.max() - pu.min()) * unit_to_mm)
-    height_mm = float((pv.max() - pv.min()) * unit_to_mm)
-    return origin_w, R_w, width_mm, height_mm
+    return (origin_w, R_w,
+            float(np.linalg.norm(dpx)) * unit_to_mm * PROJ_RES['w'],
+            float(np.linalg.norm(dpy)) * unit_to_mm * PROJ_RES['h'])
 
 
 def refine_screen_frame_to_mesh(frame_obj, mesh_obj):
@@ -1737,13 +1916,13 @@ def main():
     if not os.path.exists(base_path):
         os.makedirs(base_path)
 
-    calibration_board = bpy.data.objects.get("CalibrationBoard")
+    calibration_board = get_selected_board(bpy.context) or bpy.data.objects.get("CalibrationBoard")
     projector = bpy.data.objects.get("Light")
     camera_left = bpy.data.objects.get(LEFT_CAMERA_NAME)
     camera_right = bpy.data.objects.get(RIGHT_CAMERA_NAME)
 
     missing = []
-    if not calibration_board: missing.append("CalibrationBoard")
+    if not calibration_board: missing.append("被测物体(CalibrationBoard或面板所选)")
     if not projector: missing.append("Light")
     if not camera_left: missing.append(LEFT_CAMERA_NAME)
     if not camera_right: missing.append(RIGHT_CAMERA_NAME)
